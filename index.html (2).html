@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Delivery Route App</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f0f0f0;
+        }
+        
+        .section {
+            background: white;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .big-button {
+            background: #4CAF50;
+            color: white;
+            padding: 15px 30px;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            margin: 10px 5px;
+        }
+        
+        .big-button:hover {
+            background: #45a049;
+        }
+        
+        .big-button.red {
+            background: #f44336;
+        }
+        
+        .big-button.red:hover {
+            background: #d32f2f;
+        }
+        
+        .big-button.blue {
+            background: #2196F3;
+        }
+        
+        .big-button.blue:hover {
+            background: #1976D2;
+        }
+        
+        input, select {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+        }
+        
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .hidden {
+            display: none;
+        }
+        
+        .counter {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 10px 0;
+        }
+        
+        .counter button {
+            width: 40px;
+            height: 40px;
+            font-size: 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        
+        .counter .display {
+            font-size: 24px;
+            font-weight: bold;
+            min-width: 50px;
+            text-align: center;
+        }
+        
+        .address-list {
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        
+        .address-item {
+            padding: 15px;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .address-item:hover {
+            background: #f5f5f5;
+        }
+        
+        .address-item.completed {
+            background: #e8f5e8;
+            text-decoration: line-through;
+            opacity: 0.7;
+        }
+    </style>
+</head>
+<body>
+    <h1>🚛 Simple Delivery Route App</h1>
+    
+    <!-- Step 1: Upload CSV -->
+    <div class="section">
+        <h2>Step 1: Upload Your Route CSV</h2>
+        <input type="text" id="routeName" placeholder="Enter route name (e.g., Route 91)">
+        <input type="file" id="csvFile" accept=".csv">
+        <button class="big-button" onclick="uploadCSV()">📁 Load Route</button>
+        <button class="big-button red" onclick="clearAll()">🗑️ Clear All</button>
+        <div id="uploadStatus"></div>
+    </div>
+    
+    <!-- Step 2: Route Selection (appears after uploading multiple routes) -->
+    <div class="section hidden" id="routeSelector">
+        <!-- Route selector dropdown will appear here -->
+    </div>
+    
+    <!-- Step 3: Search and Add Parcels -->
+    <div class="section hidden" id="searchSection">
+        <h2>Step 2: Search Address & Add Parcels</h2>
+        <input type="text" id="searchInput" placeholder="Search for address..." oninput="searchAddresses()">
+        <div id="searchResults"></div>
+        
+        <h3>Parcel Counts:</h3>
+        <div class="counter">
+            <label>Small:</label>
+            <button onclick="changeCounter('small', -1)">-</button>
+            <span class="display" id="smallCount">0</span>
+            <button onclick="changeCounter('small', 1)">+</button>
+        </div>
+        
+        <div class="counter">
+            <label>Large:</label>
+            <button onclick="changeCounter('large', -1)">-</button>
+            <span class="display" id="largeCount">0</span>
+            <button onclick="changeCounter('large', 1)">+</button>
+        </div>
+        
+        <button class="big-button blue" onclick="addParcel()">📦 Add Parcel to Selected Address</button>
+        <div id="parcelStatus"></div>
+    </div>
+    
+    <!-- Step 3: Generate Route -->
+    <div class="section hidden" id="routeSection">
+        <h2>Step 3: Generate Delivery Route</h2>
+        <button class="big-button" onclick="generateRoute()">📋 Generate Route</button>
+        <button class="big-button blue" onclick="optimizeByGPS()">🗺️ Optimize by GPS</button>
+        
+        <div id="routeDisplay"></div>
+    </div>
+
+    <script>
+        let addresses = [];
+        let parcels = [];
+        let selectedAddress = null;
+        let counters = {small: 0, large: 0};
+        let completed = [];
+        
+        function uploadCSV() {
+            const routeName = document.getElementById('routeName').value;
+            const file = document.getElementById('csvFile').files[0];
+            
+            if (!routeName) {
+                showStatus('uploadStatus', 'Please enter a route name', 'error');
+                return;
+            }
+            
+            if (!file) {
+                showStatus('uploadStatus', 'Please select a CSV file', 'error');
+                return;
+            }
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const csv = e.target.result;
+                const lines = csv.split('\n');
+                
+                if (lines.length < 2) {
+                    showStatus('uploadStatus', 'CSV file is empty or invalid', 'error');
+                    return;
+                }
+                
+                const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+                
+                // Find address and coordinate columns
+                const addrIdx = headers.findIndex(h => h.includes('address'));
+                const latIdx = headers.findIndex(h => h.includes('lat'));
+                const lonIdx = headers.findIndex(h => h.includes('lon') || h.includes('lng'));
+                
+                if (addrIdx === -1 || latIdx === -1 || lonIdx === -1) {
+                    showStatus('uploadStatus', 'CSV must have address, latitude, and longitude columns', 'error');
+                    return;
+                }
+                
+                addresses = [];
+                for (let i = 1; i < lines.length; i++) {
+                    const cols = lines[i].split(',').map(c => c.trim());
+                    if (cols[addrIdx] && cols[latIdx] && cols[lonIdx]) {
+                        addresses.push({
+                            address: cols[addrIdx],
+                            lat: parseFloat(cols[latIdx]),
+                            lon: parseFloat(cols[lonIdx])
+                        });
+                    }
+                }
+                
+                showStatus('uploadStatus', `✅ Loaded ${addresses.length} addresses from ${routeName}`, 'success');
+                document.getElementById('searchSection').classList.remove('hidden');
+                document.getElementById('routeSection').classList.remove('hidden');
+            };
+            
+            reader.readAsText(file);
+        }
+        
+        function searchAddresses() {
+            const query = document.getElementById('searchInput').value.toLowerCase();
+            const results = document.getElementById('searchResults');
+            
+            if (!query) {
+                results.innerHTML = '';
+                return;
+            }
+            
+            const matches = addresses.filter(addr => 
+                addr.address.toLowerCase().includes(query)
+            ).slice(0, 10);
+            
+            results.innerHTML = matches.map(addr => 
+                `<div class="address-item" onclick="selectAddress('${addr.address}')">
+                    ${addr.address}
+                </div>`
+            ).join('');
+        }
+        
+        function selectAddress(address) {
+            selectedAddress = addresses.find(a => a.address === address);
+            document.getElementById('searchInput').value = address;
+            document.getElementById('searchResults').innerHTML = '';
+            showStatus('parcelStatus', `Selected: ${address}`, 'success');
+        }
+        
+        function changeCounter(type, change) {
+            counters[type] = Math.max(0, counters[type] + change);
+            document.getElementById(type + 'Count').textContent = counters[type];
+        }
+        
+        function addParcel() {
+            if (!selectedAddress) {
+                showStatus('parcelStatus', 'Please select an address first', 'error');
+                return;
+            }
+            
+            if (counters.small === 0 && counters.large === 0) {
+                showStatus('parcelStatus', 'Please add at least one parcel', 'error');
+                return;
+            }
+            
+            const existing = parcels.find(p => p.address === selectedAddress.address);
+            if (existing) {
+                existing.small += counters.small;
+                existing.large += counters.large;
+            } else {
+                parcels.push({
+                    address: selectedAddress.address,
+                    lat: selectedAddress.lat,
+                    lon: selectedAddress.lon,
+                    small: counters.small,
+                    large: counters.large
+                });
+            }
+            
+            showStatus('parcelStatus', `✅ Added ${counters.small} small + ${counters.large} large parcels`, 'success');
+            
+            // Reset
+            counters = {small: 0, large: 0};
+            document.getElementById('smallCount').textContent = '0';
+            document.getElementById('largeCount').textContent = '0';
+            document.getElementById('searchInput').value = '';
+            selectedAddress = null;
+        }
+        
+        function generateRoute() {
+            if (parcels.length === 0) {
+                alert('Please add some parcels first');
+                return;
+            }
+            
+            // Group parcels by street
+            const streetGroups = {};
+            parcels.forEach(parcel => {
+                // Extract street name (everything after the house number)
+                const addressParts = parcel.address.split(' ');
+                const streetName = addressParts.slice(1).join(' ') || parcel.address;
+                
+                if (!streetGroups[streetName]) {
+                    streetGroups[streetName] = [];
+                }
+                streetGroups[streetName].push(parcel);
+            });
+            
+            // Sort each street group by house number
+            Object.keys(streetGroups).forEach(street => {
+                streetGroups[street].sort((a, b) => {
+                    const aNum = parseInt(a.address.split(' ')[0]) || 0;
+                    const bNum = parseInt(b.address.split(' ')[0]) || 0;
+                    return aNum - bNum;
+                });
+            });
+            
+            let html = `<h3>📋 Delivery Route (${parcels.length} stops)</h3>`;
+            
+            // Generate route display with street groupings
+            Object.keys(streetGroups).sort().forEach(streetName => {
+                const streetParcels = streetGroups[streetName];
+                const streetTotal = streetParcels.length;
+                const streetCompleted = streetParcels.filter(p => completed.includes(p.address)).length;
+                
+                html += `
+                    <div style="margin: 20px 0; padding: 15px; background: #e3f2fd; border-radius: 8px; border-left: 4px solid #2196F3;">
+                        <h4 style="margin: 0 0 10px 0; color: #1976D2;">📍 ${streetName}</h4>
+                        <p style="margin: 0; color: #666; font-size: 14px;">${streetTotal} deliveries • ${streetCompleted} completed</p>
+                    </div>
+                    <div class="address-list">
+                `;
+                
+                streetParcels.forEach((parcel, streetIndex) => {
+                    const isCompleted = completed.includes(parcel.address);
+                    const total = parcel.small + parcel.large;
+                    
+                    html += `
+                        <div class="address-item ${isCompleted ? 'completed' : ''}">
+                            <div>
+                                <strong>${parcel.address}</strong><br>
+                                Small: ${parcel.small}, Large: ${parcel.large}, Total: ${total}
+                            </div>
+                            <div>
+                                <button class="big-button blue" onclick="navigate(${parcel.lat}, ${parcel.lon}, '${parcel.address}')">
+                                    🗺️ Navigate
+                                </button>
+                                <button class="big-button ${isCompleted ? 'red' : ''}" 
+                                        onclick="toggleComplete('${parcel.address}')">
+                                    ${isCompleted ? '✅ Done' : '📦 Complete'}
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                html += '</div>';
+            });
+            
+            document.getElementById('routeDisplay').innerHTML = html;
+        }
+        
+        function navigate(lat, lon, address) {
+            const url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}&travelmode=driving`;
+            window.open(url, '_blank');
+            alert(`Opening navigation to: ${address}`);
+        }
+        
+        function toggleComplete(address) {
+            const index = completed.indexOf(address);
+            if (index === -1) {
+                completed.push(address);
+            } else {
+                completed.splice(index, 1);
+            }
+            generateRoute(); // Refresh display
+        }
+        
+        function optimizeByGPS() {
+            if ("geolocation" in navigator) {
+                navigator.geolocation.getCurrentPosition(function(position) {
+                    const userLat = position.coords.latitude;
+                    const userLon = position.coords.longitude;
+                    
+                    // Sort by distance from user
+                    parcels.sort((a, b) => {
+                        const distA = getDistance(userLat, userLon, a.lat, a.lon);
+                        const distB = getDistance(userLat, userLon, b.lat, b.lon);
+                        return distA - distB;
+                    });
+                    
+                    generateRoute();
+                    alert('Route optimized by your GPS location!');
+                }, function() {
+                    alert('Could not get your location. Please enable GPS.');
+                });
+            } else {
+                alert('GPS not supported by your browser.');
+            }
+        }
+        
+        function getDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371; // km
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                      Math.sin(dLon/2) * Math.sin(dLon/2);
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        }
+        
+        function clearAll() {
+            if (confirm('Clear all data?')) {
+                addresses = [];
+                parcels = [];
+                completed = [];
+                selectedAddress = null;
+                counters = {small: 0, large: 0};
+                
+                document.getElementById('searchSection').classList.add('hidden');
+                document.getElementById('routeSection').classList.add('hidden');
+                document.getElementById('routeName').value = '';
+                document.getElementById('csvFile').value = '';
+                document.getElementById('uploadStatus').innerHTML = '';
+                document.getElementById('smallCount').textContent = '0';
+                document.getElementById('largeCount').textContent = '0';
+            }
+        }
+        
+        function showStatus(elementId, message, type) {
+            document.getElementById(elementId).innerHTML = 
+                `<div class="status ${type}">${message}</div>`;
+        }
+    </script>
+</body>
+</html>
